@@ -1,0 +1,13 @@
+# Data files: keep them out of Git to save space
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Secrets: API keys go here and must never be uploaded
+.env
+
+# Python and Jupyter clutter
+__pycache__/
+.ipynb_checkpoints/
+.venv/
