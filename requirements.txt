@@ -6,3 +6,5 @@ ipykernel
 yfinance
 openai
 python-dotenv
+streamlit
+plotly
