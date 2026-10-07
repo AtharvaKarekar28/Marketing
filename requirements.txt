@@ -4,3 +4,5 @@ matplotlib
 jupyter
 ipykernel
 yfinance
+openai
+python-dotenv
