@@ -21,7 +21,7 @@ DECISION_COLORS = {"accept": "#1D9E75", "reduce": "#97C459", "delay": "#EF9F27",
                    "switch": "#D85A30", "reject": "#A32D2D"}
 LABELS = {"age_group": "Age", "income": "Income", "location": "Location",
           "household": "Household", "price_sensitivity": "Price sensitivity",
-          "brand_loyalty": "Brand loyalty"}
+          "brand_loyalty": "Brand loyalty",  "usage_level": "Usage level"}
 
 
 def escape_dollars(text):

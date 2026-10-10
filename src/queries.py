@@ -6,7 +6,7 @@ import pandas as pd
 # Persona columns users can group by. Column names can't be passed with "?",
 # so we only allow names from this list to prevent SQL injection.
 GROUPABLE = {"age_group", "income", "location", "household",
-             "price_sensitivity", "brand_loyalty"}
+             "price_sensitivity", "brand_loyalty", "usage_level"}
 
 
 def list_scenarios(conn):

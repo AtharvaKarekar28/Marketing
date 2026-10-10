@@ -17,6 +17,7 @@ ATTRIBUTES = {
                   "with family and kids": 0.30, "with roommates": 0.12},
     "price_sensitivity": {"low": 0.30, "medium": 0.45, "high": 0.25},
     "brand_loyalty": {"low": 0.30, "medium": 0.45, "high": 0.25},
+    "usage_level": {"heavy": 0.30, "regular": 0.45, "occasional": 0.25},
 }
 
 
@@ -41,6 +42,9 @@ HOUSEHOLD_TEXT = {"lives alone": "living alone",
                   "with partner": "living with a partner",
                   "with family and kids": "living with family and kids",
                   "with roommates": "living with roommates"}
+USAGE_TEXT = {"heavy": "a heavy user who relies on it daily",
+              "regular": "a regular user",
+              "occasional": "an occasional user"}
 
 
 def persona_to_prompt(p):
@@ -50,6 +54,7 @@ def persona_to_prompt(p):
         f"of {p['income']}, living in {LOCATION_TEXT[p['location']]}, "
         f"{HOUSEHOLD_TEXT[p['household']]}. Your price sensitivity is "
         f"{p['price_sensitivity']} and your brand loyalty is {p['brand_loyalty']}. "
-        f"Respond as this person realistically would, based on their situation, "
-        f"not as an AI assistant."
+        f"For the product category in any scenario, you are "
+        f"{USAGE_TEXT[p['usage_level']]}. Respond as this person realistically "
+        f"would, based on their situation, not as an AI assistant."
     )

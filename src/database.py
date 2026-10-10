@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS personas (
     location          TEXT,
     household         TEXT,
     price_sensitivity TEXT,
-    brand_loyalty     TEXT
+    brand_loyalty     TEXT,
+    usage_level       TEXT
 );
 CREATE TABLE IF NOT EXISTS scenarios (
     scenario_id  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,9 +47,9 @@ def get_connection(db_path=DB_PATH):
 def save_personas(conn, personas):
     """Save personas, skipping any that are already stored."""
     conn.executemany(
-        """INSERT OR IGNORE INTO personas VALUES
+     """INSERT OR IGNORE INTO personas VALUES
            (:id, :age_group, :income, :location, :household,
-            :price_sensitivity, :brand_loyalty)""",
+            :price_sensitivity, :brand_loyalty, :usage_level)""",,
         personas,
     )
     conn.commit()

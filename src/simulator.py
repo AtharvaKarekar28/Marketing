@@ -2,6 +2,7 @@
 Simulator: sends a scenario to a persona and returns a structured reaction.
 """
 import json
+import random
 from src.personas import persona_to_prompt
 
 DECISIONS = ["accept", "reduce", "delay", "switch", "reject"]
@@ -29,17 +30,26 @@ RESPONSE_FORMAT = {
     },
 }
 
-INSTRUCTIONS = (
-    "React to the scenario above as yourself. Choose your decision:\n"
-    "- accept: buy or keep the product as normal\n"
-    "- reduce: keep it but downgrade or use it less\n"
-    "- delay: wait before deciding\n"
-    "- switch: move to a competitor\n"
-    "- reject: cancel or don't buy\n"
-    "Give an intent_score from 1 (definitely not buying/keeping) to 10 "
-    "(definitely buying/keeping), your sentiment, and a short reason in your own voice."
-)
+DECISION_TEXT = {
+    "accept": "accept: buy or keep the product as normal",
+    "reduce": "reduce: keep it, but downgrade or use it less",
+    "delay": "delay: wait before deciding or buying",
+    "switch": "switch: move to a competing product or brand",
+    "reject": "reject: cancel or don't buy, without replacing it",
+}
 
+
+def build_instructions(seed):
+    """Build the instructions with the options in a shuffled order."""
+    options = list(DECISION_TEXT.values())
+    random.Random(seed).shuffle(options)
+    return (
+        "React to the scenario above as yourself. Before deciding, think about "
+        "the realistic alternatives available to you, including staying with "
+        "what you have.\nChoose your decision:\n- " + "\n- ".join(options) + "\n"
+        "Give an intent_score from 1 (definitely not buying/keeping) to 10 "
+        "(definitely buying/keeping), your sentiment, and a short reason in your own voice."
+    )
 
 def ask_persona(client, model, persona, scenario, temperature=0.9):
     """Send one scenario to one persona and return their structured reaction."""
@@ -48,7 +58,7 @@ def ask_persona(client, model, persona, scenario, temperature=0.9):
         temperature=temperature,
         messages=[
             {"role": "system", "content": persona_to_prompt(persona)},
-            {"role": "user", "content": f"{scenario}\n\n{INSTRUCTIONS}"},
+            {"role": "user", "content": f"{scenario}\n\n{build_instructions(persona['id'])}"},"},
         ],
         response_format=RESPONSE_FORMAT,
     )
