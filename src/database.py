@@ -6,7 +6,6 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-# Database file lives in data/processed/, which is gitignored
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "processed" / "simulations.db"
 
 SCHEMA = """
@@ -18,7 +17,8 @@ CREATE TABLE IF NOT EXISTS personas (
     household         TEXT,
     price_sensitivity TEXT,
     brand_loyalty     TEXT,
-    usage_level       TEXT
+    usage_level       TEXT,
+    customer_status   TEXT
 );
 CREATE TABLE IF NOT EXISTS scenarios (
     scenario_id  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,16 +36,17 @@ CREATE TABLE IF NOT EXISTS responses (
     reason       TEXT
 );
 CREATE TABLE IF NOT EXISTS evidence (
-    scenario_id        INTEGER PRIMARY KEY REFERENCES scenarios(scenario_id),
-    is_real_event      INTEGER,
-    event_summary      TEXT,
-    reported_sentiment TEXT,
-    stated_vs_actual   TEXT,
-    key_findings       TEXT,
-    evidence_strength  TEXT,
-    sources            TEXT,
-    research_notes     TEXT,
-    created_at         TEXT
+    scenario_id         INTEGER PRIMARY KEY REFERENCES scenarios(scenario_id),
+    is_real_event       INTEGER,
+    event_summary       TEXT,
+    reported_sentiment  TEXT,
+    net_customer_effect TEXT,
+    stated_vs_actual    TEXT,
+    key_findings        TEXT,
+    evidence_strength   TEXT,
+    sources             TEXT,
+    research_notes      TEXT,
+    created_at          TEXT
 );
 """
 
@@ -62,7 +63,7 @@ def save_personas(conn, personas):
     conn.executemany(
         """INSERT OR IGNORE INTO personas VALUES
            (:id, :age_group, :income, :location, :household,
-            :price_sensitivity, :brand_loyalty, :usage_level)""",
+            :price_sensitivity, :brand_loyalty, :usage_level, :customer_status)""",
         personas,
     )
     conn.commit()
@@ -95,11 +96,11 @@ def save_evidence(conn, scenario_id, ev):
     conn.execute(
         """INSERT OR REPLACE INTO evidence
            (scenario_id, is_real_event, event_summary, reported_sentiment,
-            stated_vs_actual, key_findings, evidence_strength, sources,
-            research_notes, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            net_customer_effect, stated_vs_actual, key_findings,
+            evidence_strength, sources, research_notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (scenario_id, int(ev["is_real_event"]), ev["event_summary"],
-         ev["reported_sentiment"], ev["stated_vs_actual"],
+         ev["reported_sentiment"], ev["net_customer_effect"], ev["stated_vs_actual"],
          json.dumps(ev["key_findings"]), ev["evidence_strength"],
          json.dumps(ev["sources"]), ev.get("research_notes", ""),
          datetime.now().isoformat(timespec="seconds")),
@@ -110,8 +111,8 @@ def save_evidence(conn, scenario_id, ev):
 def get_evidence(conn, scenario_id):
     """Return the saved evidence for a scenario, or None if it hasn't been checked."""
     row = conn.execute(
-        """SELECT is_real_event, event_summary, reported_sentiment, stated_vs_actual,
-                  key_findings, evidence_strength, sources
+        """SELECT is_real_event, event_summary, reported_sentiment, net_customer_effect,
+                  stated_vs_actual, key_findings, evidence_strength, sources
            FROM evidence WHERE scenario_id = ?""",
         (scenario_id,),
     ).fetchone()
@@ -121,8 +122,9 @@ def get_evidence(conn, scenario_id):
         "is_real_event": bool(row[0]),
         "event_summary": row[1],
         "reported_sentiment": row[2],
-        "stated_vs_actual": row[3],
-        "key_findings": json.loads(row[4]),
-        "evidence_strength": row[5],
-        "sources": json.loads(row[6]),
+        "net_customer_effect": row[3],
+        "stated_vs_actual": row[4],
+        "key_findings": json.loads(row[5]),
+        "evidence_strength": row[6],
+        "sources": json.loads(row[7]),
     }

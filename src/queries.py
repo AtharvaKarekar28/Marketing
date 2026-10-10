@@ -5,8 +5,8 @@ import pandas as pd
 
 # Persona columns users can group by. Column names can't be passed with "?",
 # so we only allow names from this list to prevent SQL injection.
-GROUPABLE = {"age_group", "income", "location", "household",
-             "price_sensitivity", "brand_loyalty", "usage_level"}
+GROUPABLE = {"age_group", "income", "location", "household", "price_sensitivity",
+             "brand_loyalty", "usage_level", "customer_status"}
 
 
 def list_scenarios(conn):
@@ -30,6 +30,24 @@ def summary(conn, scenario_id):
                ROUND(100.0 * AVG(decision IN ('switch', 'reject')), 1) AS pct_lost
         FROM responses
         WHERE scenario_id = ?
+    """, conn, params=(scenario_id,)).iloc[0]
+
+
+def customer_effect(conn, scenario_id):
+    """Simulated customers gained and lost.
+    Gained: non-customers and non-paying users who would start paying (accept).
+    Lost: current paying customers who would cancel or switch."""
+    return pd.read_sql_query("""
+        SELECT
+            COUNT(*) AS n,
+            SUM(p.customer_status = 'current customer') AS n_current,
+            SUM(p.customer_status != 'current customer') AS n_prospects,
+            SUM(p.customer_status != 'current customer' AND r.decision = 'accept') AS gained,
+            SUM(p.customer_status = 'current customer'
+                AND r.decision IN ('switch', 'reject')) AS lost
+        FROM responses r
+        JOIN personas p ON r.persona_id = p.persona_id
+        WHERE r.scenario_id = ?
     """, conn, params=(scenario_id,)).iloc[0]
 
 
@@ -73,13 +91,13 @@ def sample_quotes(conn, scenario_id, per_decision=2):
     """A few random quotes for each decision type."""
     return pd.read_sql_query("""
         WITH ranked AS (
-            SELECT r.decision, r.reason, p.age_group, p.income,
+            SELECT r.decision, r.reason, p.age_group, p.income, p.customer_status,
                    ROW_NUMBER() OVER (PARTITION BY r.decision ORDER BY RANDOM()) AS rn
             FROM responses r
             JOIN personas p ON r.persona_id = p.persona_id
             WHERE r.scenario_id = ?
         )
-        SELECT decision, reason, age_group, income
+        SELECT decision, reason, age_group, income, customer_status
         FROM ranked
         WHERE rn <= ?
     """, conn, params=(scenario_id, per_decision))

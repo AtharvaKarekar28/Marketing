@@ -1,6 +1,7 @@
 """
-Consumer Reaction Simulator: a Streamlit app for testing scenarios on LLM personas,
-with an automatic real-world evidence check for scenarios that really happened.
+Consumer Reaction Simulator: test how simulated customers react to a business
+scenario, then check the prediction against real-world evidence when the
+scenario really happened.
 """
 import os
 import streamlit as st
@@ -25,40 +26,138 @@ SENTIMENT_ORDER = ["negative", "neutral", "positive"]
 SENTIMENT_COLORS = {"negative": "#A32D2D", "neutral": "#888780", "positive": "#1D9E75"}
 LABELS = {"age_group": "Age", "income": "Income", "location": "Location",
           "household": "Household", "price_sensitivity": "Price sensitivity",
-          "brand_loyalty": "Brand loyalty", "usage_level": "Usage level"}
+          "brand_loyalty": "Brand loyalty", "usage_level": "Usage level",
+          "customer_status": "Customer status"}
+NET_EFFECT_THRESHOLD = 5  # % of all personas; a design choice, not a standard
+
+
+# ---------------- Helpers ----------------
+def get_secret(name):
+    """Read a secret from .env locally, or from Streamlit secrets when deployed."""
+    value = os.getenv(name)
+    if value:
+        return value
+    try:
+        return st.secrets[name]
+    except Exception:
+        return None
+
+
+def num(x):
+    """Turn a SQL result into an int, treating empty values as 0."""
+    return 0 if x is None or x != x else int(x)  # x != x is True only for NaN
 
 
 def escape_dollars(text):
     """Streamlit treats $...$ as math formatting, so escape dollar signs."""
-    return text.replace("$", "\\$")
+    return str(text).replace("$", "\\$")
 
 
 @st.cache_resource
 def get_client():
-    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return OpenAI(api_key=get_secret("OPENAI_API_KEY"))
 
 
 def simulated_sentiment_label(sentiment_df):
-    """Summarize simulated sentiments into the same labels the evidence uses.
+    """Summarize simulated moods into the same labels the evidence uses.
     The 60% cutoff is a design choice, not a standard."""
     pct = dict(zip(sentiment_df["sentiment"], sentiment_df["pct"]))
-    if pct.get("negative", 0) >= 60:
-        return "mostly negative"
-    if pct.get("positive", 0) >= 60:
-        return "mostly positive"
+    for mood in ("negative", "positive", "neutral"):
+        if pct.get(mood, 0) >= 60:
+            return f"mostly {mood}"
     return "mixed"
 
 
-def compare_labels(simulated, reported):
-    """Rate how well the simulated mood matches the reported real-world mood."""
+def compare_mood(simulated, reported):
     if reported == "unknown":
         return None
     if simulated == reported:
         return "match"
-    if "mixed" in (simulated, reported):
+    if {simulated, reported} == {"mostly negative", "mostly positive"}:
+        return "mismatch"
+    return "partial"
+
+
+def simulated_direction(effect):
+    """Did the simulation predict the business gaining or losing customers overall?"""
+    n = num(effect["n"])
+    if n == 0:
+        return "unknown"
+    net_share = (num(effect["gained"]) - num(effect["lost"])) / n * 100
+    if net_share >= NET_EFFECT_THRESHOLD:
+        return "gained customers"
+    if net_share <= -NET_EFFECT_THRESHOLD:
+        return "lost customers"
+    return "no clear change"
+
+
+def compare_direction(simulated, reported):
+    if "unknown" in (simulated, reported):
+        return None
+    if simulated == reported:
+        return "match"
+    if "no clear change" in (simulated, reported):
         return "partial"
     return "mismatch"
 
+
+def show_verdict(result, what):
+    """Show a colored verdict box comparing the simulation to reality."""
+    if result == "match":
+        st.success(f"**Match:** the simulated {what} matches what really happened.")
+    elif result == "partial":
+        st.warning(f"**Partial match:** the simulated {what} only partly agrees with what really happened.")
+    elif result == "mismatch":
+        st.error(f"**Mismatch:** the simulated {what} is the opposite of what really happened.")
+    else:
+        st.markdown(f"**What happened:** {escape_dollars(ev['event_summary'])}")
+        reliable = ev["evidence_strength"] in ("strong", "moderate")
+
+        # Behavior: the comparison that matters most to a business
+        st.subheader("Did the business gain or lose customers?")
+        sim_dir = simulated_direction(effect)
+        real_dir = ev["net_customer_effect"]
+        c1, c2 = st.columns(2)
+        c1.metric("Simulation predicted", sim_dir.capitalize())
+        c2.metric("What really happened", real_dir.capitalize())
+        show_verdict(compare_direction(sim_dir, real_dir) if reliable else None,
+                     "customer behavior")
+        st.markdown(f"**What customers said vs. what they did:** "
+                    f"{escape_dollars(ev['stated_vs_actual'])}")
+
+        # Mood
+        st.subheader("How did customers feel?")
+        sent = q.sentiment_breakdown(conn, sid)
+        sim_mood = simulated_sentiment_label(sent)
+        c1, c2 = st.columns(2)
+        c1.metric("Simulated customer mood", sim_mood.capitalize())
+        c2.metric("Reported real-world mood", ev["reported_sentiment"].capitalize())
+        show_verdict(compare_mood(sim_mood, ev["reported_sentiment"]) if reliable else None,
+                     "customer mood")
+
+        fig3 = px.bar(sent, x="sentiment", y="pct", color="sentiment", text="pct",
+                      category_orders={"sentiment": SENTIMENT_ORDER},
+                      color_discrete_map=SENTIMENT_COLORS,
+                      labels={"pct": "% of simulated customers", "sentiment": ""},
+                      title="Simulated customer mood")
+        fig3.update_traces(texttemplate="%{text}%", textposition="outside")
+        fig3.update_layout(showlegend=False)
+        st.plotly_chart(fig3, key="sentiment_chart")
+
+        if ev["key_findings"]:
+            st.subheader("Key findings")
+            for finding in ev["key_findings"]:
+                st.markdown(f"- {escape_dollars(finding)}")
+
+        strength = ev["evidence_strength"]
+        if strength in ("weak", "none"):
+            st.warning(f"Evidence strength: **{strength}**. Treat this comparison with caution.")
+        else:
+            st.caption(f"Evidence strength: {strength}")
+
+        with st.expander(f"Sources ({len(ev['sources'])})"):
+            for src in ev["sources"]:
+                st.markdown(f"- [{escape_dollars(src['title'])}]({src['url']})")
 
 def check_evidence(conn, scenario_id, description):
     """Search for real-world evidence and save it, without crashing the app on failure."""
@@ -69,9 +168,11 @@ def check_evidence(conn, scenario_id, description):
         st.warning(f"Couldn't check real-world evidence: {e}")
 
 
+# ---------------- Page ----------------
 st.title("Consumer Reaction Simulator")
 st.caption("Simulated customers powered by an LLM. Results are predictions, not real survey data.")
 conn = db.get_connection()
+APP_PASSWORD = get_secret("APP_PASSWORD")
 
 # ---- Sidebar: run a new scenario ----
 with st.sidebar:
@@ -81,7 +182,17 @@ with st.sidebar:
         placeholder="e.g. Our phone's price increases from $899 to $999 with a better camera.",
     )
     n = st.slider("Number of simulated customers", 10, 100, 30, step=10)
-    if st.button("Run simulation", type="primary"):
+
+    allowed = True
+    if APP_PASSWORD:
+        code = st.text_input("Access code", type="password",
+                             help="Running new simulations uses the owner's API credits.")
+        allowed = code == APP_PASSWORD
+        if not allowed:
+            st.caption("Enter the access code to run new simulations. "
+                       "You can still explore the saved scenarios.")
+
+    if st.button("Run simulation", type="primary", disabled=not allowed):
         if not scenario.strip():
             st.error("Enter a scenario first.")
         else:
@@ -106,15 +217,18 @@ sid = st.selectbox("Scenario", options,
                    format_func=lambda i: descriptions[i])
 
 s = q.summary(conn, sid)
+effect = q.customer_effect(conn, sid)
 tab_sim, tab_real = st.tabs(["Simulated reactions", "Real-world reality check"])
 
 # ================= Tab 1: Simulated reactions =================
 with tab_sim:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Customers simulated", int(s["n"]))
+    c1.metric("Customers simulated", num(s["n"]))
     c2.metric("Avg purchase intent", f"{s['avg_intent']}/10")
-    c3.metric("Would keep as normal", f"{s['pct_accept']}%")
-    c4.metric("Would cancel or switch", f"{s['pct_lost']}%")
+    c3.metric("New customers gained", f"{num(effect['gained'])} of {num(effect['n_prospects'])}",
+              help="Simulated non-customers and non-paying users who would start paying.")
+    c4.metric("Current customers lost", f"{num(effect['lost'])} of {num(effect['n_current'])}",
+              help="Simulated paying customers who would cancel or switch.")
 
     st.subheader("How customers reacted")
     d = q.decision_breakdown(conn, sid)
@@ -139,8 +253,8 @@ with tab_sim:
     st.subheader("In their own words")
     for _, row in q.sample_quotes(conn, sid).iterrows():
         st.markdown(
-            f"**{row['decision']}** · {row['age_group']}, {escape_dollars(row['income'])}  \n"
-            f"> {escape_dollars(row['reason'])}"
+            f"**{row['decision']}** · {row['customer_status']}, {row['age_group']}, "
+            f"{escape_dollars(row['income'])}  \n> {escape_dollars(row['reason'])}"
         )
 
 # ================= Tab 2: Real-world reality check =================
@@ -149,7 +263,7 @@ with tab_real:
 
     if ev is None:
         st.info("This scenario hasn't been checked against real-world evidence yet.")
-        if st.button("Check real-world evidence"):
+        if st.button("Check real-world evidence", disabled=not allowed):
             with st.spinner("Searching for real-world reactions..."):
                 check_evidence(conn, sid, descriptions[sid])
             st.rerun()
@@ -162,23 +276,25 @@ with tab_real:
     else:
         st.markdown(f"**What happened:** {escape_dollars(ev['event_summary'])}")
 
-        # Mood comparison
-        sent = q.sentiment_breakdown(conn, sid)
-        sim_label = simulated_sentiment_label(sent)
-        result = compare_labels(sim_label, ev["reported_sentiment"])
-
+        # Behavior: the comparison that matters most to a business
+        st.subheader("Did the business gain or lose customers?")
+        sim_dir = simulated_direction(effect)
+        real_dir = ev["net_customer_effect"]
         c1, c2 = st.columns(2)
-        c1.metric("Simulated customer mood", sim_label.capitalize())
-        c2.metric("Reported real-world mood", ev["reported_sentiment"].capitalize())
+        c1.metric("Simulation predicted", sim_dir.capitalize())
+        c2.metric("What really happened", real_dir.capitalize())
+        show_verdict(compare_direction(sim_dir, real_dir), "customer behavior")
+        st.markdown(f"**What customers said vs. what they did:** "
+                    f"{escape_dollars(ev['stated_vs_actual'])}")
 
-        if result == "match":
-            st.success("**Match:** the simulated mood matches how real customers reacted.")
-        elif result == "partial":
-            st.warning("**Partial match:** one side was mixed, so the moods only partly agree.")
-        elif result == "mismatch":
-            st.error("**Mismatch:** the simulated mood is the opposite of the real reaction.")
-        else:
-            st.info("There isn't enough reported evidence on customer mood to compare.")
+        # Mood
+        st.subheader("How did customers feel?")
+        sent = q.sentiment_breakdown(conn, sid)
+        sim_mood = simulated_sentiment_label(sent)
+        c1, c2 = st.columns(2)
+        c1.metric("Simulated customer mood", sim_mood.capitalize())
+        c2.metric("Reported real-world mood", ev["reported_sentiment"].capitalize())
+        show_verdict(compare_mood(sim_mood, ev["reported_sentiment"]), "customer mood")
 
         fig3 = px.bar(sent, x="sentiment", y="pct", color="sentiment", text="pct",
                       category_orders={"sentiment": SENTIMENT_ORDER},
@@ -188,12 +304,6 @@ with tab_real:
         fig3.update_traces(texttemplate="%{text}%", textposition="outside")
         fig3.update_layout(showlegend=False)
         st.plotly_chart(fig3, key="sentiment_chart")
-
-        # Behavior comparison
-        st.subheader("What customers said vs. what they did")
-        st.markdown(f"**Real world:** {escape_dollars(ev['stated_vs_actual'])}")
-        st.markdown(f"**Simulation:** {s['pct_lost']}% of simulated customers "
-                    f"said they would cancel or switch.")
 
         if ev["key_findings"]:
             st.subheader("Key findings")

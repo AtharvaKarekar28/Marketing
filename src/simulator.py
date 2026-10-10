@@ -18,7 +18,7 @@ RESPONSE_FORMAT = {
             "properties": {
                 "decision": {"type": "string", "enum": DECISIONS},
                 "intent_score": {"type": "integer",
-                                 "description": "1-10, likelihood to buy or keep the product"},
+                                 "description": "1-10, likelihood to pay for the product"},
                 "sentiment": {"type": "string",
                               "enum": ["negative", "neutral", "positive"]},
                 "reason": {"type": "string",
@@ -30,26 +30,29 @@ RESPONSE_FORMAT = {
     },
 }
 
+# Definitions work for current customers and non-customers alike
 DECISION_TEXT = {
-    "accept": "accept: buy or keep the product as normal",
-    "reduce": "reduce: keep it, but downgrade or use it less",
-    "delay": "delay: wait before deciding or buying",
+    "accept": "accept: pay for the product as normal (keep paying, or start paying if you don't now)",
+    "reduce": "reduce: keep or get it, but downgrade, use it less, or choose a cheaper option",
+    "delay": "delay: wait before deciding",
     "switch": "switch: move to a competing product or brand",
-    "reject": "reject: cancel or don't buy, without replacing it",
+    "reject": "reject: don't pay for it (cancel, stop using it, or don't buy), without replacing it",
 }
 
 
 def build_instructions(seed):
-    """Build the instructions with the options in a shuffled order."""
+    """Build the instructions with the options in a shuffled order,
+    so no option gets an advantage from always being listed first."""
     options = list(DECISION_TEXT.values())
     random.Random(seed).shuffle(options)
     return (
         "React to the scenario above as yourself. Before deciding, think about "
         "the realistic alternatives available to you, including staying with "
         "what you have.\nChoose your decision:\n- " + "\n- ".join(options) + "\n"
-        "Give an intent_score from 1 (definitely not buying/keeping) to 10 "
-        "(definitely buying/keeping), your sentiment, and a short reason in your own voice."
+        "Give an intent_score from 1 (definitely won't pay for it) to 10 "
+        "(definitely will pay for it), your sentiment, and a short reason in your own voice."
     )
+
 
 def ask_persona(client, model, persona, scenario, temperature=0.9):
     """Send one scenario to one persona and return their structured reaction."""
