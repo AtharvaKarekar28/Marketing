@@ -44,6 +44,17 @@ def decision_breakdown(conn, scenario_id):
     """, conn, params=(scenario_id,))
 
 
+def sentiment_breakdown(conn, scenario_id):
+    """Share of customers with each sentiment."""
+    return pd.read_sql_query("""
+        SELECT sentiment, COUNT(*) AS n,
+               ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
+        FROM responses
+        WHERE scenario_id = ?
+        GROUP BY sentiment
+    """, conn, params=(scenario_id,))
+
+
 def breakdown_by(conn, scenario_id, attribute):
     """Decision shares within each value of a persona attribute."""
     if attribute not in GROUPABLE:

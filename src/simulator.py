@@ -53,12 +53,13 @@ def build_instructions(seed):
 
 def ask_persona(client, model, persona, scenario, temperature=0.9):
     """Send one scenario to one persona and return their structured reaction."""
+    instructions = build_instructions(persona["id"])
     response = client.chat.completions.create(
         model=model,
         temperature=temperature,
         messages=[
             {"role": "system", "content": persona_to_prompt(persona)},
-            {"role": "user", "content": f"{scenario}\n\n{build_instructions(persona['id'])}"},"},
+            {"role": "user", "content": f"{scenario}\n\n{instructions}"},
         ],
         response_format=RESPONSE_FORMAT,
     )

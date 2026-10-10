@@ -1,6 +1,7 @@
 """
-Database layer: SQLite storage for personas, scenarios, and responses.
+Database layer: SQLite storage for personas, scenarios, responses, and evidence.
 """
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,18 @@ CREATE TABLE IF NOT EXISTS responses (
     sentiment    TEXT,
     reason       TEXT
 );
+CREATE TABLE IF NOT EXISTS evidence (
+    scenario_id        INTEGER PRIMARY KEY REFERENCES scenarios(scenario_id),
+    is_real_event      INTEGER,
+    event_summary      TEXT,
+    reported_sentiment TEXT,
+    stated_vs_actual   TEXT,
+    key_findings       TEXT,
+    evidence_strength  TEXT,
+    sources            TEXT,
+    research_notes     TEXT,
+    created_at         TEXT
+);
 """
 
 
@@ -47,9 +60,9 @@ def get_connection(db_path=DB_PATH):
 def save_personas(conn, personas):
     """Save personas, skipping any that are already stored."""
     conn.executemany(
-     """INSERT OR IGNORE INTO personas VALUES
+        """INSERT OR IGNORE INTO personas VALUES
            (:id, :age_group, :income, :location, :household,
-            :price_sensitivity, :brand_loyalty, :usage_level)""",,
+            :price_sensitivity, :brand_loyalty, :usage_level)""",
         personas,
     )
     conn.commit()
@@ -75,3 +88,41 @@ def save_response(conn, scenario_id, r):
          r["sentiment"], r["reason"]),
     )
     conn.commit()
+
+
+def save_evidence(conn, scenario_id, ev):
+    """Save the real-world evidence for a scenario, replacing any older check."""
+    conn.execute(
+        """INSERT OR REPLACE INTO evidence
+           (scenario_id, is_real_event, event_summary, reported_sentiment,
+            stated_vs_actual, key_findings, evidence_strength, sources,
+            research_notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (scenario_id, int(ev["is_real_event"]), ev["event_summary"],
+         ev["reported_sentiment"], ev["stated_vs_actual"],
+         json.dumps(ev["key_findings"]), ev["evidence_strength"],
+         json.dumps(ev["sources"]), ev.get("research_notes", ""),
+         datetime.now().isoformat(timespec="seconds")),
+    )
+    conn.commit()
+
+
+def get_evidence(conn, scenario_id):
+    """Return the saved evidence for a scenario, or None if it hasn't been checked."""
+    row = conn.execute(
+        """SELECT is_real_event, event_summary, reported_sentiment, stated_vs_actual,
+                  key_findings, evidence_strength, sources
+           FROM evidence WHERE scenario_id = ?""",
+        (scenario_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "is_real_event": bool(row[0]),
+        "event_summary": row[1],
+        "reported_sentiment": row[2],
+        "stated_vs_actual": row[3],
+        "key_findings": json.loads(row[4]),
+        "evidence_strength": row[5],
+        "sources": json.loads(row[6]),
+    }
