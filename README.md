@@ -2,7 +2,7 @@
 
 **Predict how customers will react to a business decision before it happens, then check the prediction against what real customers actually did.**
 
-🔗 **Live app:** [https://YOUR-APP-NAME.streamlit.app](https://YOUR-APP-NAME.streamlit.app)
+🔗 **Live app:** (https://marketing-consumer-reaction-simulator.streamlit.app)
 
 Built with Python, OpenAI's API, SQLite, and Streamlit.
 
